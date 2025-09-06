@@ -7,7 +7,7 @@
 
 SoftwareSerial swSerial(swRX, swTX);
 
-uint8_t bufferTX[7] = {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t bufferTX[8] = {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06};
 
 void setup() {
   // Serial Debug
@@ -19,19 +19,20 @@ void setup() {
 
   // INIT DTMF
   initDTMF();
-  Serial.println(F("-- Initialisation DONE --"));
+  Serial.println(F("-- Init.....DONE --"));
 }
 
 void loop() {
   // DTMF
   char valDTMF = 0;
+  boolean keepAliveSend = 0;
+
   valDTMF = readDTMF();
+  keepAliveSend = keepAlive();
 
   if(valDTMF != 0)
   {    
-    Serial.print(F("T: "));
-    Serial.println(valDTMF);
-    bufferTX[2] = 0x01;
+
     switch (valDTMF)
     {
       case '0':
@@ -86,18 +87,19 @@ void loop() {
       default:
         break;
     }
-    swSerial.write(bufferTX, 7);
+    
+    bufferTX[2] = 0x01;
+    swSerial.write(bufferTX, 8);
+    delay(200);
     bufferTX[2] = 0x00;
-    delay(1000);
-    swSerial.write(bufferTX, 7);
+    swSerial.write(bufferTX, 8);
   }
   delay(30);
 
   // D578  
-  if(keepAlive() == 1)
+  if(keepAliveSend == 1)
   {
     swSerial.write(0x06);
   }
-
   //
 }
