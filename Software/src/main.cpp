@@ -8,6 +8,7 @@
 SoftwareSerial swSerial(swRX, swTX);
 
 uint8_t bufferTX[8] = {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06};
+char cmdDTMF[2] = {0x00, 0x00};
 
 void setup() {
   // Serial Debug
@@ -23,17 +24,22 @@ void setup() {
 }
 
 void loop() {
+  
+  cmdDTMF[1] = 0;
+
   // DTMF
-  char valDTMF = 0;
   boolean keepAliveSend = 0;
 
-  valDTMF = readDTMF();
+  cmdDTMF[1] = readDTMF();
   keepAliveSend = keepAlive();
 
-  if(valDTMF != 0)
+  if((cmdDTMF[0] == 0) & (cmdDTMF[1] != 0))
   {    
+    
+    // Debug
+    Serial.println(cmdDTMF[1]);
 
-    switch (valDTMF)
+    switch (cmdDTMF[1])
     {
       case '0':
         bufferTX[4] = bp0;
@@ -78,25 +84,70 @@ void loop() {
         bufferTX[4] = bpD;
         break;      
       case '*':
-        bufferTX[4] = bpST;
+        //bufferTX[4] = bpST;
+        cmdDTMF[0] = '*';
+        cmdDTMF[1] = 0;
         break;
       case '#':
-        bufferTX[4] = bpDH;
+        //bufferTX[4] = bpDH;
+        cmdDTMF[0] = '#';
+        cmdDTMF[1] = 0;
         break;
 
       default:
         break;
     }
-    
-    bufferTX[2] = 0x01;
-    swSerial.write(bufferTX, 8);
-    delay(200);
-    bufferTX[2] = 0x00;
-    swSerial.write(bufferTX, 8);
+    if(cmdDTMF[1] != 0)
+    {
+      bufferTX[2] = 0x01;
+      swSerial.write(bufferTX, 8);
+      delay(200);
+      bufferTX[2] = 0x00;
+      swSerial.write(bufferTX, 8);
+    }
   }
+
+  if((cmdDTMF[0] != 0) & (cmdDTMF[1] != 0))
+  {
+    // Debug
+    Serial.print(cmdDTMF[0]);
+    Serial.println(cmdDTMF[1]);
+    
+    // Long press
+    if(cmdDTMF[0] == '*')
+    {
+      switch (cmdDTMF[1])
+      {
+        case 'A':
+          bufferTX[4] = bpA;
+          break;      
+        case 'B':
+          bufferTX[4] = bpB;
+          break;
+        case 'C':
+          bufferTX[4] = bpC;
+          break;    
+        case 'D':
+          bufferTX[4] = bpD;
+          break;      
+      }
+      
+      bufferTX[3] = 0x01;
+      bufferTX[2] = 0x01;
+      swSerial.write(bufferTX, 8);
+      delay(200);
+      bufferTX[3] = 0x00;
+      bufferTX[2] = 0x00;
+      swSerial.write(bufferTX, 8);
+    }
+   
+    cmdDTMF[0] = 0;
+  }
+  
+  cmdDTMF[1] = 0;
   delay(30);
 
-  // D578  
+  // D578 Keep Alive Packet 
   if(keepAliveSend == 1)
   {
     swSerial.write(0x06);
