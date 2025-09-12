@@ -24,6 +24,4 @@
 #define bpC         0x1C
 #define bpD         0x1D
 
-boolean keepAlive(void);
-
 #endif

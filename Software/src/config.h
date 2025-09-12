@@ -18,10 +18,9 @@
 #define Q3          7
 
 // BEACON
-#define CW_PIN      8
-#define CALL        "F1ZIC"
-#define REPEAT      60
-#define TONE_CW     700
-#define MSG         "CQ CQ CQ DE F1ZIC/BEACON JN25TE"
+#define EOT_BEACON  8
+#define SOT_BEACON  9
+#define REPEAT      15
+
 
 #endif
