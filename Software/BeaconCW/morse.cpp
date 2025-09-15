@@ -37,23 +37,45 @@ morse_char_t MorseCode[] = {
     {'7', '-', '-', '.', '.', '.',  0},
     {'8', '-', '-', '-', '.', '.',  0},
     {'9', '-', '-', '-', '-', '.',  0},
-    {'/', '-', '.', '.', '-', '.',  0},
-    {'?', '.', '.', '-', '-', '.', '.'},
-    {'.', '.', '-', '.', '-', '.', '-'},
-    {',', '-', '-', '.', '.', '-', '-'},
-    {'(', '-', '.', '-', '.', '-', 0},
-    {')', '.', '-', '.', '-', '.', 0}
+    {'/', '-', '.', '.', '-', '.',  0}
+    // {'/', '-', '.', '.', '-', '.',  0},
+    // {'?', '.', '.', '-', '-', '.', '.'},
+    // {'.', '.', '-', '.', '-', '.', '-'},
+    // {',', '-', '-', '.', '.', '-', '-'},
+    // {'(', '-', '.', '-', '.', '-', 0},
+    // {')', '.', '-', '.', '-', '.', 0}
 };
+
+void send_letter_space()
+{
+  delay(dot_length_ms * 4);  // wait for 3 dot periods
+}
+
+
+void send_word_space()
+{
+  delay(dot_length_ms * 7);  // wait for 6 dot periods
+}
+
+
+void send_morse_char(char c)
+{
+  // 'c' is a '.' or '-' char, so send it 
+  if(c == '.')
+    send_dot();
+  else 
+    if (c == '-') 
+      send_dash();
+}
+
 
 void play_message(String m)
 {
 // sends the message in string 'm' as CW, with inter letter and word spacing
 // s is the speed to play at; if s == 0, use the current speed  
-  unsigned int i, j; 
+uint8_t i, j; 
   int n; 
-  char buff[100];
-
-  Serial.println(m);
+  char buff[64];
 
   // use ch = m.charAt(index);
   m.toCharArray(buff, m.length()+1);
@@ -69,9 +91,6 @@ void play_message(String m)
       if( (n = morse_lookup(buff[i])) == -1 )
       {
         // char not found, ignore it (but report it on Serial)
-        Serial.print(F("Char in message not found in MorseTable <"));
-        Serial.print(buff[i]);
-        Serial.println(F(">"));
       }
       else
       {
@@ -96,36 +115,12 @@ int morse_lookup(char c)
   return -1; 
 }
 
-void send_letter_space()
-{
-  delay(dot_length_ms * 4);  // wait for 3 dot periods
-  Serial.print(F(" "));
-}
-
-
-void send_word_space()
-{
-  delay(dot_length_ms * 7);  // wait for 6 dot periods
-  Serial.print(F("  "));
-}
-
-
-void send_morse_char(char c)
-{
-  // 'c' is a '.' or '-' char, so send it 
-  if(c == '.')
-    send_dot();
-  else 
-    if (c == '-') 
-      send_dash();
-}
-
 void send_dot()
 {
   digitalWrite(LED, HIGH);
   delay(dot_length_ms);  // wait for one dot period (space)
-  Serial.print(F("."));
-  tone(CW_PIN, TONE_CW, dot_length_ms);
+  tone(CW_PIN, TONE_CW);
+  delay(dot_length_ms);
   noTone(CW_PIN);
   digitalWrite(LED, LOW);
 }
@@ -134,8 +129,8 @@ void send_dash()
 {
   digitalWrite(LED, HIGH);
   delay(dot_length_ms);  // wait for one dot period (space)
-  Serial.print(F("-"));
-  tone(CW_PIN, TONE_CW, (dot_length_ms * CW_DASH_LEN));
+  tone(CW_PIN, TONE_CW);
+  delay((dot_length_ms * CW_DASH_LEN));
   noTone(CW_PIN);
   digitalWrite(LED, LOW);
 }
