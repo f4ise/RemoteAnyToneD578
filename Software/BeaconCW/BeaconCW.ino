@@ -1,24 +1,54 @@
 #include "config.h"
 #include "morse.h"
 
+void sendBeacon(void);
+void sendAck(void);
+
 void setup() {
-  pinMode(LED, OUTPUT);
+
+  pinMode(MSG0_CW, INPUT);
+  pinMode(MSG1_CW, INPUT);
+  pinMode(SOT_CW, INPUT);
   pinMode(CW_PIN, OUTPUT);
-  pinMode(EOT_PIN, OUTPUT);
-  digitalWrite(EOT_PIN, LOW);
+  pinMode(EOT_CW, OUTPUT);
+
+  digitalWrite(EOT_CW, LOW);
 }
 
 void loop() {
-  digitalWrite(EOT_PIN, LOW);
+  uint8_t valMessage = 0;
+  valMessage = 0 | (digitalRead(MSG1_CW) << 1) | (digitalRead(MSG0_CW));
+    
+  if(digitalRead(SOT_CW) == 1) {
+    switch(valMessage) {
+      case 0:
+        sendAck();
+        break;
+      case 1:
+        sendBeacon();
+        break;
+      case 2:
+        break;
+      case 3:
+        break;
+    }
 
+    digitalWrite(EOT_CW, HIGH);
+    delay(100);
+    digitalWrite(EOT_CW, LOW);
+  }
+
+  delay(200);
+}
+
+void sendBeacon(void) {
   play_message(CALL);
   send_word_space();
-
   play_message(TYPE);
-  send_word_space();
-  
+  send_word_space();  
   play_message(LOCATOR);
-  delay(100);
-  digitalWrite(EOT_PIN, HIGH);
-  delay(5000);
+}
+
+void sendAck(void) {
+  play_message(ACK);
 }

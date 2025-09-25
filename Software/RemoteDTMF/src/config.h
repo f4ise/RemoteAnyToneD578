@@ -18,9 +18,24 @@
 #define Q3          7
 
 // BEACON
-#define EOT_BEACON  8
-#define SOT_BEACON  9
-#define REPEAT      15
+#define MSG0_CW     14
+#define MSG1_CW     15
+#define SOT_CW      8
+#define EOT_CW      9
+#define REPEAT      5       // Send Beacon X min.
+
+// AUDIO AM
+#define DURATION_AM 15      // Send Audio AM X sec.
+
+// OPTO
+#define PRES12V     3
+#define CMDPTT      10
+
+// SWITCH ANA
+#define SW_CW       16
+#define SW_AM       17
+
+
 
 
 #endif
