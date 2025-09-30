@@ -1,46 +1,67 @@
 #include <Arduino.h>
+#include <EEPROM.h>
 #include <SoftwareSerial.h>
+#include <Wire.h>
+
+#include <ErriezSerialTerminal.h>
+#include <DS3231.h>
 
 #include "config.h"
 #include "d578.h"
 #include "dtmf.h"
 
-SoftwareSerial swSerial(swRX, swTX);
+// RTC Clock
+DS3231 rtc;
+
+// DTMF
+void taskDTMF(void);
 
 uint8_t bufferTX[8] = {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06};
 char cmdDTMF[4] = {0x00, 0x00, 0x00, 0x00};
+uint8_t dtmfTimer = 0;
 
-uint16_t sendBeaconTimer = (60 * REPEAT);
-boolean enaBeacon   = 1;
-
-unsigned long lastSecond;
-
-String VERSION = "0.4A";
-
-#define INF   0
-#define WAR   1
-#define ERR   2
-
+// CW/AM
 void sendBeacon(void);
 void sendAM(void);
 void sendAck(void);
+
+uint8_t repeatBeacon;
+uint16_t sendBeaconTimer;
+boolean enaBeacon = 0;
+
+// AT-D578
+SoftwareSerial swSerial(swRX, swTX);
 
 void Pressed(uint8_t bp);
 void longPressed(uint8_t bp);
 void pttPressed(boolean onoff);
 void sendKeepAlive(void);
 
-void taskDTMF(void);
+// Terminal
+SerialTerminal term('\n', ' ');
 
+void cmdHelp();
+void cmdGet();
+void cmdSet();
+void cmdVersion();
+void cmdSave();
+void cmdUnknown(const char *command);
+void printConsoleChar(void);
+
+// Misc
 void logs(uint8_t level);
-boolean checkSecond(void);
+void checkSecond(void);
+void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second);
 
+unsigned long lastSecond;
+
+// --  PROGRAM  ----------------------------------------------------------
 void setup() {
+  
+  int addr = 0;
+
   // Serial Debug
   Serial.begin(dbgSpeed);
-  Serial.println();
-  Serial.print(F("-- REMOTE D578 - VERSION: "));
-  Serial.println(VERSION);
 
   // Config IO GEN CW
   pinMode(EOT_CW, INPUT);
@@ -53,9 +74,10 @@ void setup() {
   digitalWrite(MSG1_CW, LOW);
 
   // Config IO Misc
+  pinMode(PRES12V1, INPUT);
+  //pinMode(PRES12V2, INPUT);     // TBD IO
   pinMode(LED, OUTPUT);
   pinMode(CMDPTT, OUTPUT);
-  pinMode(PRES12V, INPUT);
   pinMode(SW_CW, OUTPUT);
   pinMode(SW_AM, OUTPUT);
   // Init IO Misc  
@@ -64,42 +86,54 @@ void setup() {
   digitalWrite(SW_CW, LOW);
   digitalWrite(SW_AM, LOW);
 
+  // Init I2C
+  Wire.begin();
+
+  // Init EEPROM
+  EEPROM.begin();  //Initialize EEPROM
+  enaBeacon = EEPROM.read(addr);
+  addr++;
+  repeatBeacon = EEPROM.read(addr);
+  
   // Serial D578
   swSerial.begin(swSPEED);
 
   // INIT DTMF
   initDTMF();
-  Serial.println(F("-- Init.....DONE"));
+  
+  // Init Beacon
+  sendBeaconTimer = (60 * repeatBeacon);
+
+  // Init Serial Terminal
+  Serial.println();
+  Serial.println(F("-- Remote DTMF AT-D578 --"));
+  Serial.println(F("type '?' to display usage."));
+  Serial.println();
+  printConsoleChar();
+  term.setDefaultHandler(cmdUnknown);
+  term.addCommand("?", cmdHelp);
+  term.addCommand("get", cmdGet);
+  term.addCommand("set", cmdSet);
+  term.addCommand("sav", cmdSave);
+  term.addCommand("v", cmdVersion);
+  term.setSerialEcho(true);
+  term.setPostCommandHandler(printConsoleChar);
 }
 
 void loop() {
-
   
-  if(digitalRead(PRES12V) == 0)
-  {
-    // Presence 12V
-    digitalWrite(LED, HIGH);
-  }
-  else
-  {
-    // Absence 12V
-    digitalWrite(LED, LOW);
-  }
-
   taskDTMF();
-
-  // D578 Keep Alive Packet 
-  if(checkSecond() == 1)
-  {
-    sendKeepAlive();
-    sendBeaconTimer--;
-  }
 
   sendBeacon();
 
-  delay(30);
+  checkSecond();  
+
+  term.readSerial();
+
+  delay(10);
 }
 
+// --  DTMF  -------------------------------------------------------------
 void taskDTMF(void)
 {
     // DTMF
@@ -108,9 +142,11 @@ void taskDTMF(void)
   
   if((cmdDTMF[1] == 0) & (cmdDTMF[0] != 0))
   {        
-    // Debug
-    logs(INF);
-    Serial.println(cmdDTMF[0]);
+    //if((cmdDTMF[0] != '*') | (cmdDTMF[0] != '#'))
+    //{      
+      logs(INF);
+      Serial.println(cmdDTMF[0]);
+    //}
 
     switch (cmdDTMF[0])
     {
@@ -164,11 +200,13 @@ void taskDTMF(void)
         //Pressed(bpST);
         cmdDTMF[1] = '*';
         cmdDTMF[0] = 0;
+        dtmfTimer = timeoutDTMF;
         break;
       case '#':
         //Pressed(bpDH);
         cmdDTMF[1] = '#';
         cmdDTMF[0] = 0;
+        dtmfTimer = timeoutDTMF;
         break;
 
       default:
@@ -190,17 +228,17 @@ void taskDTMF(void)
       {
         case '0':
           enaBeacon = 0;
-          logs(INF);
           //digitalWrite(LED, LOW);
+          logs(INF);
           Serial.println("BEACON DISABLE");
           sendAck();
           break;   
         case '1':
           enaBeacon = 1;
-          logs(INF);
           //digitalWrite(LED, HIGH);
+          logs(INF);
           Serial.println("BEACON ENABLE");
-          sendBeaconTimer = (60 * REPEAT);
+          sendBeaconTimer = (60 * repeatBeacon);
           sendAck();
           break;
         case '2':
@@ -247,8 +285,18 @@ void taskDTMF(void)
     cmdDTMF[1] = 0;
   }
   
+  // Timeout DTMF for no reception after * or #
+  if((cmdDTMF[1] != 0) & (cmdDTMF[0] == 0) & (dtmfTimer == 0))
+  {
+    cmdDTMF[1] = 0;
+    logs(WAR);
+    Serial.println(F("Timeout receive DTMF"));
+  }
+
+  delay(10);
 }
 
+// --  AUDIO CW/AM  ------------------------------------------------------
 void sendBeacon(void)
 {
   // Send beacon
@@ -262,20 +310,15 @@ void sendBeacon(void)
 
     //PTT ON
     pttPressed(1);
-    logs(INF);
     delay(1000);
+    logs(INF);
     Serial.print(F("PTT ON.."));
     digitalWrite(MSG0_CW, HIGH);
     digitalWrite(SOT_CW, HIGH);
 
     while(digitalRead(EOT_CW) == 0)
     {
-      // D578 Keep Alive Packet
-      if(checkSecond() == 1)
-      {
-        sendKeepAlive();
-      }
-      delay(30);
+      checkSecond();
     }
 
     // PTT OFF
@@ -284,7 +327,7 @@ void sendBeacon(void)
     Serial.println(F("..PTT OFF"));
     logs(INF);
     Serial.println(F("EOT BEACON"));
-    sendBeaconTimer = (60 * REPEAT);
+    sendBeaconTimer = (60 * repeatBeacon);
   }
 }
 
@@ -296,7 +339,6 @@ void sendAM(void)
   Serial.println(F("Send AM"));
 
   //PTT ON TELCO
-
   logs(INF);
   Serial.print(F("PTT ON..."));
   digitalWrite(CMDPTT, HIGH);
@@ -307,11 +349,7 @@ void sendAM(void)
 
   for(duration = 0; duration < (DURATION_AM * 2); duration++)
   {
-    // D578 Keep Alive Packet
-    if(checkSecond() == 1)
-    {
-      sendKeepAlive();
-    }
+    checkSecond();
     delay(500);
   }
 
@@ -331,11 +369,10 @@ void sendAck(void)
   Serial.println(F("Send ACK"));
 
   //PTT ON TELCO
-
   logs(INF);
   Serial.print(F("PTT ON..."));
   digitalWrite(CMDPTT, HIGH);
-  delay(500);
+  delay(800);
   digitalWrite(SW_CW, HIGH);
   digitalWrite(SW_AM, LOW);
   delay(100);
@@ -344,12 +381,7 @@ void sendAck(void)
 
   while(digitalRead(EOT_CW) == 0)
   {
-    // D578 Keep Alive Packet
-    if(checkSecond() == 1)
-    {
-      sendKeepAlive();
-    }
-    delay(30);
+    checkSecond();
   }
 
   // PTT OFF
@@ -362,6 +394,7 @@ void sendAck(void)
   Serial.println(F("EOT ACK"));
 }
 
+// --  COMMAND D578  -----------------------------------------------------
 void Pressed(uint8_t bp)
 {
   bufferTX[4] = bp;
@@ -408,6 +441,162 @@ void sendKeepAlive(void)
   swSerial.write(0x06);
 }
 
+// --  COMMAND TERMINAL  -------------------------------------------------
+void cmdHelp()
+{
+    // Print usage
+    Serial.println(F("Serial terminal usage:"));
+    Serial.println(F("  ?                   Print this help"));
+    Serial.println(F("  get                 Get Parameters"));
+    Serial.println(F("  set <eb> <rb> <dt>  Set Parameters"));
+    Serial.println(F("  sav                 Save Parameters"));
+    Serial.println(F("  v                   Print Version"));
+}
+
+void cmdGet()
+{
+	bool CenturyBit = false;
+  bool h12Flag;
+  bool pmFlag;
+
+  Serial.print(F("Enable Beacon: "));
+  Serial.println(enaBeacon);
+  Serial.print(F("Repeat Beacon: "));
+  Serial.println(repeatBeacon);
+
+  // Get date
+	Serial.print(rtc.getDate(), DEC);
+	Serial.print("/");
+	Serial.print(rtc.getMonth(CenturyBit), DEC);
+	Serial.print("/");
+  Serial.print(rtc.getYear(), DEC);
+	Serial.print(' ');
+	
+  // Get Time
+	Serial.print(rtc.getHour(h12Flag, pmFlag), DEC);
+	Serial.print(":");
+	Serial.print(rtc.getMinute(), DEC);
+	Serial.print(":");
+	Serial.print(rtc.getSecond(), DEC);
+ 
+	// Add AM/PM indicator
+	if (h12Flag) {
+		if (pmFlag) {
+			Serial.println(F(" PM"));
+		} else {
+			Serial.println(F(" AM"));
+		}
+	} else {
+		Serial.println(F(" 24H"));
+	}
+}
+
+void cmdSet()
+{
+  int val;
+  char *arg;
+
+  byte year;
+  byte month;
+  byte date;
+  byte dOW;
+  byte hour;
+  byte minute;
+  byte second;
+
+  arg = term.getNext();
+  if (arg == NULL)
+  {
+    Serial.println(F("DEC value not specified."));
+    return;
+  }
+  else
+  {
+    if (sscanf(arg, "%d", &val) != 1)
+    {
+      Serial.println(F("Cannot convert DEC value."));
+      return;
+    }
+  }
+  enaBeacon = val;
+  Serial.print(F("Set Enable Beacon: "));
+  Serial.println(enaBeacon, DEC);
+    
+  arg = term.getNext();
+  if (arg == NULL)
+  {
+    Serial.println(F("DEC value not specified."));
+    return;
+  }
+  else
+  {
+    if (sscanf(arg, "%d", &val) != 1)
+    {
+      Serial.println(F("Cannot convert DEC value."));
+      return;
+    }
+  }
+  repeatBeacon = val;
+  Serial.print(F("Set Repeat Beacon: "));
+  Serial.println(repeatBeacon, DEC);
+
+  arg = term.getNext();
+  if (arg == NULL)
+  {
+    Serial.println(F("Date & Time not specified."));
+    return;
+  }
+  else
+  {
+    getDateStuff(year, month, date, dOW, hour, minute, second);
+        
+    rtc.setClockMode(false);  // set to 24h
+    //setClockMode(true); // set to 12h
+        
+    rtc.setYear(year);
+    rtc.setMonth(month);
+    rtc.setDate(date);
+    rtc.setDoW(dOW);
+    rtc.setHour(hour);
+    rtc.setMinute(minute);
+    rtc.setSecond(second);
+  }
+
+}
+
+void cmdSave()
+{
+  int addr = 0;  
+
+  // write to EEPROM.
+  EEPROM.write(addr, enaBeacon); 
+  addr++;
+  EEPROM.write(addr, repeatBeacon);    
+  Serial.println("Save Configuration");
+
+}
+
+void cmdVersion()
+{
+    // Print usage
+    Serial.print(F("VERSION: "));
+    Serial.println(VERSION);
+}
+
+void cmdUnknown(const char *command)
+{
+    // Print unknown command
+    Serial.print(F("Unknown command: "));
+    Serial.print(command);
+    Serial.println(F(", '?' for help"));
+}
+
+void printConsoleChar(void)
+{
+    Serial.print(F("> "));
+}
+
+// --  MISC  -------------------------------------------------------------
 void logs(uint8_t level)
 {
   switch (level)
@@ -425,15 +614,66 @@ void logs(uint8_t level)
   }
 }
 
-boolean checkSecond(void)
+void checkSecond(void)
 {
-    if ((millis() - lastSecond) >= 1000)
+  if ((millis() - lastSecond) >= 1000)
+  {
+    lastSecond = millis();
+    sendKeepAlive();
+    sendBeaconTimer--;
+    if(dtmfTimer > 0 )
     {
-        lastSecond = millis();
-        return 1;
+      dtmfTimer--;
     }
-    else
-    {
-        return 0;
+  }
+}
+
+void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second)
+{
+    // Call this if you notice something coming in on
+    // the serial port. The stuff coming in should be in
+    // the order YYMMDDwHHMMSS, with an 'x' at the end.
+    boolean gotString = false;
+    char inChar;
+    byte temp1, temp2;
+    char inString[20];
+    
+    byte j=0;
+    while (!gotString) {
+        if (Serial.available()) {
+            inChar = Serial.read();
+            inString[j] = inChar;
+            j += 1;
+            if (inChar == 'x') {
+                gotString = true;
+            }
+        }
     }
+    Serial.println(inString);
+    // Read year first
+    temp1 = (byte)inString[0] -48;
+    temp2 = (byte)inString[1] -48;
+    year = temp1*10 + temp2;
+    // now month
+    temp1 = (byte)inString[2] -48;
+    temp2 = (byte)inString[3] -48;
+    month = temp1*10 + temp2;
+    // now date
+    temp1 = (byte)inString[4] -48;
+    temp2 = (byte)inString[5] -48;
+    date = temp1*10 + temp2;
+    // now Day of Week
+    dOW = (byte)inString[6] - 48;
+    // now hour
+    temp1 = (byte)inString[7] -48;
+    temp2 = (byte)inString[8] -48;
+    hour = temp1*10 + temp2;
+    // now minute
+    temp1 = (byte)inString[9] -48;
+    temp2 = (byte)inString[10] -48;
+    minute = temp1*10 + temp2;
+    // now second
+    temp1 = (byte)inString[11] -48;
+    temp2 = (byte)inString[12] -48;
+    second = temp1*10 + temp2;
 }
