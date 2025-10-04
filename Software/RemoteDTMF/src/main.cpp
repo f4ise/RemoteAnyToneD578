@@ -4,7 +4,9 @@
 #include <Wire.h>
 
 #include <ErriezSerialTerminal.h>
+#include <SparkFunBME280.h>
 #include <DS3231.h>
+#include <PCF8575.h>
 
 #include "config.h"
 #include "d578.h"
@@ -12,6 +14,12 @@
 
 // RTC Clock
 DS3231 rtc;
+
+// Temperature Sensor
+BME280 SensorInt;
+
+// PIO Extension
+PCF8575 pio(0x20);
 
 // DTMF
 void taskDTMF(void);
@@ -43,6 +51,7 @@ SerialTerminal term('\n', ' ');
 void cmdHelp();
 void cmdGet();
 void cmdSet();
+void cmdTemp();
 void cmdVersion();
 void cmdSave();
 void cmdUnknown(const char *command);
@@ -89,6 +98,16 @@ void setup() {
   // Init I2C
   Wire.begin();
 
+  // Init BME280
+  SensorInt.setI2CAddress(0x76);
+  if(SensorInt.beginI2C() == false)
+  {
+    Serial.println(F("Sensor Int connect failed"));
+  }    
+
+  // Init PIO
+  pio.begin();
+
   // Init EEPROM
   EEPROM.begin();  //Initialize EEPROM
   enaBeacon = EEPROM.read(addr);
@@ -114,6 +133,7 @@ void setup() {
   term.addCommand("?", cmdHelp);
   term.addCommand("get", cmdGet);
   term.addCommand("set", cmdSet);
+  term.addCommand("temp", cmdTemp);
   term.addCommand("sav", cmdSave);
   term.addCommand("v", cmdVersion);
   term.setSerialEcho(true);
@@ -500,6 +520,7 @@ void cmdHelp()
     Serial.println(F("  ?                   Print this help"));
     Serial.println(F("  get                 Get Parameters"));
     Serial.println(F("  set <eb> <rb> <dt>  Set Parameters"));
+    Serial.println(F("  temp                Get Temperature"));
     Serial.println(F("  sav                 Save Parameters"));
     Serial.println(F("  v                   Print Version"));
 }
@@ -627,6 +648,21 @@ void cmdSave()
   EEPROM.write(addr, repeatBeacon);    
   Serial.println("Save Configuration");
 
+}
+
+void cmdTemp()
+{
+  Serial.print(F("Humidite: "));
+  Serial.print(SensorInt.readFloatHumidity(), 1);
+  Serial.println(F("%"));
+
+  Serial.print(F("Pression: "));
+  Serial.print((SensorInt.readFloatPressure() / 100), 1);
+  Serial.println(F(" hPa"));
+
+  Serial.print(F("Temperature: "));
+  Serial.print(SensorInt.readTempC(), 1);
+  Serial.println(F("°"));
 }
 
 void cmdVersion()
