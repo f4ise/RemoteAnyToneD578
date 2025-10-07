@@ -36,6 +36,9 @@ void sendAck(char ack);
 uint8_t repeatBeacon;
 uint16_t sendBeaconTimer;
 boolean enaBeacon = 0;
+#define timerRelayDelay   15
+uint8_t timerRelayON = timerRelayDelay;
+uint8_t timerRelayOFF = 0xFF;
 
 // AT-D578
 SoftwareSerial swSerial(swRX, swTX);
@@ -56,6 +59,9 @@ void cmdVersion();
 void cmdSave();
 void cmdUnknown(const char *command);
 void printConsoleChar(void);
+
+// PIO
+void enableRelay(uint8_t num, bool state);
 
 // Misc
 void logs(uint8_t level);
@@ -90,7 +96,6 @@ void setup() {
   pinMode(SW_CW, OUTPUT);
   pinMode(SW_AM, OUTPUT);
   // Init IO Misc  
-  digitalWrite(LED, HIGH);
   digitalWrite(CMDPTT, LOW);
   digitalWrite(SW_CW, LOW);
   digitalWrite(SW_AM, LOW);
@@ -106,14 +111,26 @@ void setup() {
   }    
 
   // Init PIO
-  pio.begin();
-
+  if(pio.begin(0) == false)
+  {
+    Serial.println(F("PC8575 connect failed"));
+  } 
+  
   // Init EEPROM
   EEPROM.begin();  //Initialize EEPROM
   enaBeacon = EEPROM.read(addr);
   addr++;
   repeatBeacon = EEPROM.read(addr);
   
+  if(enaBeacon == 1)
+  {
+    digitalWrite(LED, HIGH);
+  }
+  else
+  {
+    digitalWrite(LED, LOW);
+  }
+
   // Serial D578
   swSerial.begin(swSPEED);
 
@@ -591,9 +608,19 @@ void cmdSet()
     }
   }
   enaBeacon = val;
+  
+  if(enaBeacon == 1)
+  {
+    digitalWrite(LED, HIGH);
+  }
+  else
+  {
+    digitalWrite(LED, LOW);
+  }
+
   Serial.print(F("Set Enable Beacon: "));
   Serial.println(enaBeacon, DEC);
-    
+
   arg = term.getNext();
   if (arg == NULL)
   {
@@ -685,6 +712,25 @@ void printConsoleChar(void)
     Serial.print(F("> "));
 }
 
+// --  PIO  -------------------------------------------------------------
+void enableRelay(uint8_t num, bool state)
+{
+  if(state == 0)
+  {
+    pio.write((8 + (num * 2) + 1), LOW);
+    pio.write((8 + (num * 2)), HIGH);
+    delay(150);
+    pio.write((8 + (num * 2)), LOW);
+  }
+  else
+  {
+    pio.write((8 + (num * 2)), LOW);
+    pio.write((8 + (num * 2) + 1), HIGH);
+    delay(150);
+    pio.write((8 + (num * 2) + 1), LOW);
+  }
+}
+
 // --  MISC  -------------------------------------------------------------
 void logs(uint8_t level)
 {
@@ -710,6 +756,7 @@ void checkSecond(void)
     lastSecond = millis();
     sendKeepAlive();
     sendBeaconTimer--;
+      
     if(dtmfTimer > 0 )
     {
       dtmfTimer--;
@@ -717,7 +764,7 @@ void checkSecond(void)
   }
 }
 
-void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second)
+void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second) 
 {
     // Call this if you notice something coming in on
     // the serial port. The stuff coming in should be in
