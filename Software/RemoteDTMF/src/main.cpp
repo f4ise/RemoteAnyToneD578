@@ -14,16 +14,13 @@
 
 // RTC Clock
 DS3231 rtc;
-
 // Temperature Sensor
 BME280 SensorInt;
-
 // PIO Extension
 PCF8575 pio(0x20);
 
 // DTMF
 void taskDTMF(void);
-
 uint8_t bufferTX[8] = {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06};
 char cmdDTMF[4] = {0x00, 0x00, 0x00, 0x00};
 uint8_t dtmfTimer = 0;
@@ -31,21 +28,16 @@ uint8_t dtmfTimer = 0;
 // CW/AM
 void sendBeacon(void);
 void sendAM(void);
-void sendAck(char ack);
-
+void sendAck(int ack);
 uint8_t repeatBeacon;
 uint16_t sendBeaconTimer;
 boolean enaBeacon = 0;
-#define timerRelayDelay   15
-uint8_t timerRelayON = timerRelayDelay;
-uint8_t timerRelayOFF = 0xFF;
 
 // AT-D578
 SoftwareSerial swSerial(swRX, swTX);
-
-char Pressed(uint8_t bp);
-char longPressed(uint8_t bp);
-char pttPressed(boolean onoff);
+int Pressed(uint8_t bp);
+int longPressed(uint8_t bp);
+void pttPressed(boolean onoff);
 void sendKeepAlive(void);
 
 // Terminal
@@ -177,7 +169,7 @@ void taskDTMF(void)
   cmdDTMF[0] = 0;
   cmdDTMF[0] = readDTMF();
   
-  if((cmdDTMF[1] == 0) & (cmdDTMF[0] != 0))
+  if((cmdDTMF[2] == 0) &(cmdDTMF[1] == 0) &  (cmdDTMF[0] != 0))
   {        
     logs(INF);
     Serial.println(cmdDTMF[0]);
@@ -228,13 +220,13 @@ void taskDTMF(void)
         break;      
       case '*':
         //Pressed(bpST);
-        cmdDTMF[1] = '*';
+        cmdDTMF[2] = cmdDTMF[0];
         cmdDTMF[0] = 0;
         dtmfTimer = timeoutDTMF;
         break;
       case '#':
         //Pressed(bpDH);
-        cmdDTMF[1] = '#';
+        cmdDTMF[2] = cmdDTMF[0];
         cmdDTMF[0] = 0;
         dtmfTimer = timeoutDTMF;
         break;
@@ -244,73 +236,171 @@ void taskDTMF(void)
     }
   }
 
-  if((cmdDTMF[1] != 0) & (cmdDTMF[0] != 0))
+  if((cmdDTMF[2] != 0) & (cmdDTMF[1] == 0) & (cmdDTMF[0] != 0))
   {
     // Debug
     logs(INF);
-    Serial.print(cmdDTMF[1]);
+    Serial.print(cmdDTMF[2]);
     Serial.println(cmdDTMF[0]);
     
     // Long press
-    if(cmdDTMF[1] == '*')
+    if(cmdDTMF[2] == '*')
     {
       switch (cmdDTMF[0])
       {
         case '0':
-          enaBeacon = 0;
-          digitalWrite(LED, LOW);
-          logs(INF);
-          Serial.println("BEACON DISABLE");
-          sendAck('K');
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
           break;   
         case '1':
-          enaBeacon = 1;
-          digitalWrite(LED, HIGH);
-          logs(INF);
-          Serial.println("BEACON ENABLE");
-          sendBeaconTimer = (60 * repeatBeacon);
-          sendAck('K');
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
           break;
         case '2':
-          sendAck(Pressed(bpDN));
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
           break;
         case '3':
-          sendAck(Pressed(bpUP));
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
           break;            
         case '4':
-          sendAck(Pressed(bpSAB));
-          break;          
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;
+        case '5':
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;   
+        case '6':
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;
+        case '7':
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;
+        case '8':
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;            
+        case '9':
+          cmdDTMF[1] = cmdDTMF[0];
+          cmdDTMF[0] = 0;
+          break;             
         case 'A':
           sendAck(longPressed(bpA));
+          cmdDTMF[2] = 0;
           break;      
         case 'B':
           longPressed(bpB);
           delay(200);
-          sendAck(longPressed(bpB));
+          longPressed(bpB);
           delay(200);
+          sendAck(0xAA);
           sendAM();
           //longPressed(bpB);
           //delay(200);
           longPressed(bpB);
           delay(200);
-          sendAck(longPressed(bpB));
+          longPressed(bpB);
+          cmdDTMF[2] = 0;
           break;
         case 'C':
           sendAck(longPressed(bpC));
+          cmdDTMF[2] = 0;
           break;    
         case 'D':
           sendAck(longPressed(bpD));
+          cmdDTMF[2] = 0;
           break;      
       }
-    }
-   
-    cmdDTMF[1] = 0;
+    }   
   }
   
-  // Timeout DTMF for no reception after * or #
-  if((cmdDTMF[1] != 0) & (cmdDTMF[0] == 0) & (dtmfTimer == 0))
+  if((cmdDTMF[2] != 0) & (cmdDTMF[1] != 0) & (cmdDTMF[0] != 0))
   {
+    // Debug
+    logs(INF);
+    Serial.print(cmdDTMF[2]);
+    Serial.print(cmdDTMF[1]);
+    Serial.println(cmdDTMF[0]);
+    
+    // CMD ON/OFF
+    if(cmdDTMF[2] == '*')
+    {
+      switch (cmdDTMF[1])
+      {
+        case '0':
+          if(cmdDTMF[0] == '0')
+          {
+            enaBeacon = 0;
+            digitalWrite(LED, LOW);
+            logs(INF);
+            Serial.println("BEACON DISABLE");
+            sendAck(0xAA);
+          }
+          if(cmdDTMF[0] == '1')
+          {
+            enaBeacon = 1;
+            digitalWrite(LED, HIGH);
+            logs(INF);
+            Serial.println("BEACON ENABLE");
+            sendBeaconTimer = (60 * repeatBeacon);
+            sendAck(0xAA);
+          }
+          break;   
+        case '1':
+          if(cmdDTMF[0] == '0')
+          {
+            enableRelay(0, 0);
+            Serial.println("RLY 1 OFF");
+            sendAck(0xAA);
+          }
+          if(cmdDTMF[0] == '1')
+          {
+            enableRelay(0, 1);
+            Serial.println("RLY 1 ON");
+            sendAck(0xAA);
+          }
+          break;
+        case '2':
+          if(cmdDTMF[0] == '0')
+          {
+            enableRelay(1, 0);
+            Serial.println("RLY 2 OFF");
+            sendAck(0xAA);
+          }
+          if(cmdDTMF[0] == '1')
+          {
+            enableRelay(1, 1);
+            Serial.println("RLY 2 ON");
+            sendAck(0xAA);
+          }
+          break;
+        case '3':
+          if(cmdDTMF[0] == '0')
+          {
+            sendAck(Pressed(bpDN));
+          }
+          if(cmdDTMF[0] == '1')
+          {
+            sendAck(Pressed(bpUP));
+          }          
+          break;            
+        case '4':
+          sendAck(Pressed(bpSAB));
+          break;          
+      }
+    }
+    cmdDTMF[2] = 0;
     cmdDTMF[1] = 0;
+  }
+
+  // Timeout DTMF for no reception after * or #
+  if((cmdDTMF[2] != 0) & (cmdDTMF[1] == 0) & (cmdDTMF[0] == 0) & (dtmfTimer == 0))
+  {
+    cmdDTMF[2] = 0;
     logs(WAR);
     Serial.println(F("Timeout receive DTMF"));
   }
@@ -329,6 +419,7 @@ void sendBeacon(void)
 
     cmdDTMF[0] = 0;
     cmdDTMF[1] = 0;
+    cmdDTMF[2] = 0;
 
     //PTT ON
     pttPressed(1);
@@ -385,9 +476,9 @@ void sendAM(void)
   // Serial.println(F("EOT AM"));
 }
 
-void sendAck(char ack)
+void sendAck(int ack)
 {
-  if((ack == 0xaa) | (ack == 'K'))
+  if(ack == 0xAA)
   {
     // Send beacon
     logs(INF);
@@ -419,17 +510,12 @@ void sendAck(char ack)
     // logs(INF);
     // Serial.println(F("EOT ACK"));
   }
-  else
-  {
-    Serial.print(F("Valeur ACK: "));
-    Serial.println(ack, HEX);
-  }
 }
 
 // --  COMMAND D578  -----------------------------------------------------
-char Pressed(uint8_t bp)
+int Pressed(uint8_t bp)
 {
-  char ackD578 = 0;
+  int ackD578 = 0;
   
   bufferTX[4] = bp;
   bufferTX[2] = 0x01;
@@ -443,22 +529,23 @@ char Pressed(uint8_t bp)
     ackD578 = swSerial.read();
   }
   
-  Serial.print(F("Val ack D578: "));
+  //ackD578 = ackD578 & 0x000000FF;
+
   Serial.println(ackD578, HEX);
 
-  if(ackD578 == 0xaa)
+  if(ackD578 == 0xAA)
   {
     return ackD578;
   }
   else
   {
     return 0;
-  }  
+  }
 }
 
-char longPressed(uint8_t bp)
+int longPressed(uint8_t bp)
 {
-  char ackD578 = 0;
+  int ackD578 = 0;
   
   bufferTX[4] = bp;
   bufferTX[3] = 0x01;
@@ -474,10 +561,11 @@ char longPressed(uint8_t bp)
     ackD578 = swSerial.read();
   }
   
-  Serial.print(F("Val ack D578: "));
+  //ackD578 = ackD578 & 0x000000FF;
+
   Serial.println(ackD578, HEX);
 
-  if(ackD578 == 0xaa)
+  if(ackD578 == 0xAA)
   {
     return ackD578;
   }
@@ -487,10 +575,8 @@ char longPressed(uint8_t bp)
   }  
 }
 
-char pttPressed(boolean onoff)
+void pttPressed(boolean onoff)
 {
-  char ackD578 = 0;
-  
   // Enable PTT
   bufferTX[4] = bpPTT;
   bufferTX[3] = 0;
@@ -505,23 +591,6 @@ char pttPressed(boolean onoff)
     bufferTX[1] = 0;
   }
   swSerial.write(bufferTX, 8);
-  
-  if(swSerial.available() > 0)
-  {
-    ackD578 = swSerial.read();
-  }
-  
-  Serial.print(F("Val ack D578: "));
-  Serial.println(ackD578, HEX);
-
-  if(ackD578 == 0xaa)
-  {
-    return ackD578;
-  }
-  else
-  {
-    return 0;
-  }  
 }
 
 void sendKeepAlive(void)

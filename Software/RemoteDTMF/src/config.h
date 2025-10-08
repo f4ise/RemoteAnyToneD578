@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define VERSION     "0.6A"
+#define VERSION     "0.7A"
 
 #define LED         LED_BUILTIN
 
