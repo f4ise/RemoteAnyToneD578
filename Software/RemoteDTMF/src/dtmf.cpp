@@ -2,7 +2,7 @@
 
 #include "dtmf.h"
 
-volatile bool STQTick = 0;
+volatile byte STQtick = 0;
 
 void initDTMF(void)
 {
@@ -17,11 +17,10 @@ void initDTMF(void)
 char readDTMF(void)
 {
     uint8_t valRead = 0;
-    if(STQTick == 1)
+    if(STQtick)
     {
-        delayMicroseconds(50);
+        STQtick = 0;
         valRead = 0 | (digitalRead(Q3) << 3) | (digitalRead(Q2) << 2) | (digitalRead(Q1) << 1) | (digitalRead(Q0));
-        STQTick = 0;
         return charDTMF[valRead];
     }
     else
@@ -32,5 +31,5 @@ char readDTMF(void)
 
 void STQ_ISR(void)
 {
-    STQTick = 1;
+    STQtick = 1;
 }

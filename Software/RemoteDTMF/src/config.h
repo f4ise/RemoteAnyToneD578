@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define VERSION     "0.7A"
+#define VERSION     "0.8A"
 
 #define LED         LED_BUILTIN
 
@@ -18,7 +18,10 @@
 #define Q1          5
 #define Q2          6
 #define Q3          7
-#define timeoutDTMF 10      // Timeout DTMF
+#define timeOutDTMF 10      // Timeout DTMF
+
+// DS3231
+#define intRTC      3
 
 // BEACON
 #define MSG0_CW     14
@@ -30,7 +33,7 @@
 #define DURATION_AM 15      // Send Audio AM X sec.
 
 // OPTO
-#define PRES12V1     3
+#define PRES12V1     3      // TBD IO
 #define PRES12V2     3      // TBD IO
 #define CMDPTT      10
 

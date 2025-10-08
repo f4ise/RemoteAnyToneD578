@@ -45,7 +45,10 @@ SerialTerminal term('\n', ' ');
 
 void cmdHelp();
 void cmdGet();
-void cmdSet();
+void cmdSetBeacon();
+void cmdSetAuto();
+void cmdSetDate();
+void cmdSetTime();
 void cmdTemp();
 void cmdVersion();
 void cmdSave();
@@ -55,14 +58,28 @@ void printConsoleChar(void);
 // PIO
 void enableRelay(uint8_t num, bool state);
 
+// RTC
+void taskRTC(void);
+void intRTC_ISR(void);
+void setAlarm(byte num);
+void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second);
+volatile byte RTCtik = 0;
+  // Alarme 1 START Relays
+byte a1Hour;
+byte a1Minute;
+  // Alarme 2 STOP Relays
+byte a2Hour;
+byte a2Minute;
+
+
 // Misc
 void logs(uint8_t level);
 void checkSecond(void);
-void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second);
+
 
 unsigned long lastSecond;
 
-// --  PROGRAM  ----------------------------------------------------------
+// --  INIT  -------------------------------------------------------------
 void setup() {
   
   int addr = 0;
@@ -81,8 +98,9 @@ void setup() {
   digitalWrite(MSG1_CW, LOW);
 
   // Config IO Misc
-  pinMode(PRES12V1, INPUT);
+  //pinMode(PRES12V1, INPUT);     // TBD IO
   //pinMode(PRES12V2, INPUT);     // TBD IO
+  pinMode(intRTC, INPUT_PULLUP);
   pinMode(LED, OUTPUT);
   pinMode(CMDPTT, OUTPUT);
   pinMode(SW_CW, OUTPUT);
@@ -94,6 +112,11 @@ void setup() {
 
   // Init I2C
   Wire.begin();
+
+  // Init RTC
+  setAlarm(1);
+  setAlarm(2);
+  attachInterrupt(digitalPinToInterrupt(intRTC), intRTC_ISR, FALLING);
 
   // Init BME280
   SensorInt.setI2CAddress(0x76);
@@ -113,6 +136,15 @@ void setup() {
   enaBeacon = EEPROM.read(addr);
   addr++;
   repeatBeacon = EEPROM.read(addr);
+  addr++;
+  a1Hour = EEPROM.read(addr);
+  addr++;
+  a1Minute = EEPROM.read(addr);
+  addr++;
+  a2Hour = EEPROM.read(addr);
+  addr++;
+  a2Minute = EEPROM.read(addr);
+
   
   if(enaBeacon == 1)
   {
@@ -141,7 +173,10 @@ void setup() {
   term.setDefaultHandler(cmdUnknown);
   term.addCommand("?", cmdHelp);
   term.addCommand("get", cmdGet);
-  term.addCommand("set", cmdSet);
+  term.addCommand("setBeacon", cmdSetBeacon);
+  term.addCommand("setAuto", cmdSetAuto);
+  term.addCommand("setDate", cmdSetDate);
+  term.addCommand("setTime", cmdSetTime);
   term.addCommand("temp", cmdTemp);
   term.addCommand("sav", cmdSave);
   term.addCommand("v", cmdVersion);
@@ -149,9 +184,12 @@ void setup() {
   term.setPostCommandHandler(printConsoleChar);
 }
 
+// --  PROGRAM  ----------------------------------------------------------
 void loop() {
   
   taskDTMF();
+
+  taskRTC();
 
   sendBeacon();
 
@@ -160,6 +198,12 @@ void loop() {
   term.readSerial();
 
   delay(10);
+}
+
+// --  INTERRUPT  --------------------------------------------------------
+void intRTC_ISR(void)
+{
+  RTCtik = 1;
 }
 
 // --  DTMF  -------------------------------------------------------------
@@ -222,13 +266,13 @@ void taskDTMF(void)
         //Pressed(bpST);
         cmdDTMF[2] = cmdDTMF[0];
         cmdDTMF[0] = 0;
-        dtmfTimer = timeoutDTMF;
+        dtmfTimer = timeOutDTMF;
         break;
       case '#':
         //Pressed(bpDH);
         cmdDTMF[2] = cmdDTMF[0];
         cmdDTMF[0] = 0;
-        dtmfTimer = timeoutDTMF;
+        dtmfTimer = timeOutDTMF;
         break;
 
       default:
@@ -408,11 +452,115 @@ void taskDTMF(void)
   delay(30);
 }
 
+// --  RTC  --------------------------------------------------------------
+void taskRTC(void)
+{
+  if(RTCtik)
+  {    
+    Serial.println(F("INT RTC DETECTED"));
+
+    RTCtik = 0;
+
+    bool intA1 = rtc.checkIfAlarm(1, false);
+    bool intA2 = rtc.checkIfAlarm(2, false);
+
+    Serial.print(intA1);
+    Serial.print(' ');
+    Serial.println(intA2);
+
+    if(intA1)
+    {
+      enableRelay(0, 1);
+      enableRelay(1, 1);
+      rtc.checkIfAlarm(1, true);
+      Serial.println(F("RELAIS 1 & 2 ON"));
+    }    
+    if(intA2)
+    {
+      enableRelay(0, 0);
+      enableRelay(1, 0);
+      rtc.checkIfAlarm(2, true);
+      Serial.println(F("RELAIS 1 & 2 OFF"));
+    }
+
+
+  }
+}
+
+void setAlarm(byte num)
+{
+  if(num == 1)
+  {
+    rtc.turnOffAlarm(1);
+    rtc.setA1Time(0, a1Hour, a1Minute, 0, 0b00001000, false, false, false);
+    rtc.turnOnAlarm(1);
+    rtc.checkIfAlarm(1, true);
+  }
+
+  if(num == 2)
+  {
+    rtc.turnOffAlarm(2);
+    rtc.setA2Time(0, a2Hour, a2Minute, 0b01000000, false, false, false);
+    rtc.turnOnAlarm(2);
+    rtc.checkIfAlarm(2, true);
+  }
+}
+
+void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second) 
+{
+    // Call this if you notice something coming in on
+    // the serial port. The stuff coming in should be in
+    // the order YYMMDDwHHMMSS, with an 'x' at the end.
+    boolean gotString = false;
+    char inChar;
+    byte temp1, temp2;
+    char inString[20];
+    
+    byte j=0;
+    while (!gotString) {
+        if (Serial.available()) {
+            inChar = Serial.read();
+            inString[j] = inChar;
+            j += 1;
+            if (inChar == 'x') {
+                gotString = true;
+            }
+        }
+    }
+    Serial.println(inString);
+    // Read year first
+    temp1 = (byte)inString[0] -48;
+    temp2 = (byte)inString[1] -48;
+    year = temp1*10 + temp2;
+    // now month
+    temp1 = (byte)inString[2] -48;
+    temp2 = (byte)inString[3] -48;
+    month = temp1*10 + temp2;
+    // now date
+    temp1 = (byte)inString[4] -48;
+    temp2 = (byte)inString[5] -48;
+    date = temp1*10 + temp2;
+    // now Day of Week
+    dOW = (byte)inString[6] - 48;
+    // now hour
+    temp1 = (byte)inString[7] -48;
+    temp2 = (byte)inString[8] -48;
+    hour = temp1*10 + temp2;
+    // now minute
+    temp1 = (byte)inString[9] -48;
+    temp2 = (byte)inString[10] -48;
+    minute = temp1*10 + temp2;
+    // now second
+    temp1 = (byte)inString[11] -48;
+    temp2 = (byte)inString[12] -48;
+    second = temp1*10 + temp2;
+}
+
 // --  AUDIO CW/AM  ------------------------------------------------------
 void sendBeacon(void)
 {
   // Send beacon
-  if((sendBeaconTimer == 0) & (enaBeacon == 1))
+  if((sendBeaconTimer == 0) & (enaBeacon))
   {
     logs(INF);
     Serial.println(F("Send Beacon"));
@@ -582,7 +730,7 @@ void pttPressed(boolean onoff)
   bufferTX[3] = 0;
   bufferTX[2] = 0;    
   
-  if(onoff == 1)
+  if(onoff)
   {
     bufferTX[1] = 0x01;    
   }
@@ -605,7 +753,10 @@ void cmdHelp()
     Serial.println(F("Serial terminal usage:"));
     Serial.println(F("  ?                   Print this help"));
     Serial.println(F("  get                 Get Parameters"));
-    Serial.println(F("  set <eb> <rb> <dt>  Set Parameters"));
+    Serial.println(F("  setBeacon           Set Beacon"));
+    Serial.println(F("  setAuto             Set Start/Stop Auto"));
+    Serial.println(F("  setDate             Set date RTC"));
+    Serial.println(F("  setTime             Set time RTC"));
     Serial.println(F("  temp                Get Temperature"));
     Serial.println(F("  sav                 Save Parameters"));
     Serial.println(F("  v                   Print Version"));
@@ -647,20 +798,21 @@ void cmdGet()
 	} else {
 		Serial.println(F(" 24H"));
 	}
+
+  Serial.print(F("A1: "));
+  Serial.print(a1Hour);
+  Serial.print(F(":"));
+  Serial.println(a1Minute);
+  Serial.print(F("A2: "));
+  Serial.print(a2Hour);
+  Serial.print(F(":"));
+  Serial.println(a2Minute);
 }
 
-void cmdSet()
+void cmdSetBeacon()
 {
   int val;
   char *arg;
-
-  byte year;
-  byte month;
-  byte date;
-  byte dOW;
-  byte hour;
-  byte minute;
-  byte second;
 
   arg = term.getNext();
   if (arg == NULL)
@@ -678,7 +830,7 @@ void cmdSet()
   }
   enaBeacon = val;
   
-  if(enaBeacon == 1)
+  if(enaBeacon)
   {
     digitalWrite(LED, HIGH);
   }
@@ -708,30 +860,111 @@ void cmdSet()
   sendBeaconTimer = (60 * repeatBeacon);
   Serial.print(F("Set Repeat Beacon: "));
   Serial.println(repeatBeacon, DEC);
+}
 
-  arg = term.getNext();
-  if (arg == NULL)
+void cmdSetAuto()
+{
+  int val;
+  int buffer[4];
+  char *arg;
+  uint8_t i = 0;
+  for(i = 0; i < 4; i++)
   {
-    Serial.println(F("Date & Time not specified."));
-    return;
-  }
-  else
-  {
-    // TODO : Finaliser la mise a jour de l'heure / date et AL1 AL2 pour Demmarage / Arret relays
-    getDateStuff(year, month, date, dOW, hour, minute, second);
-        
-    rtc.setClockMode(false);  // set to 24h
-    //setClockMode(true); // set to 12h
-        
-    rtc.setYear(year);
-    rtc.setMonth(month);
-    rtc.setDate(date);
-    rtc.setDoW(dOW);
-    rtc.setHour(hour);
-    rtc.setMinute(minute);
-    rtc.setSecond(second);
+      arg = term.getNext();
+      if (arg == NULL)
+      {
+        Serial.println(F("DEC value not specified."));
+        return;
+      }
+      else
+      {
+        if (sscanf(arg, "%d", &val) != 1)
+        {
+          Serial.println(F("Cannot convert DEC value."));
+          return;
+        }
+      }
+
+      buffer[i] = val;
   }
 
+  a1Hour = buffer[0];
+  a1Minute = buffer[1];
+  setAlarm(1);
+  a2Hour = buffer[2];
+  a2Minute = buffer[3];
+  setAlarm(2);
+  Serial.print(F("Set Alarm A1: "));
+  Serial.print(a1Hour);
+  Serial.print(F(":"));
+  Serial.println(a1Minute);
+  Serial.print(F("Set Alarm A2: "));
+  Serial.print(a2Hour);
+  Serial.print(F(":"));
+  Serial.println(a2Minute);  
+}
+
+void cmdSetDate()
+{
+  int val;
+  int buffer[3];
+  char *arg;
+  uint8_t i = 0;
+  for(i = 0; i < 3; i++)
+  {
+      arg = term.getNext();
+      if (arg == NULL)
+      {
+        Serial.println(F("DEC value not specified."));
+        return;
+      }
+      else
+      {
+        if (sscanf(arg, "%d", &val) != 1)
+        {
+          Serial.println(F("Cannot convert DEC value."));
+          return;
+        }
+      }
+
+      buffer[i] = val;
+  }
+
+  rtc.setDate(buffer[0]);
+  rtc.setMonth(buffer[1]);
+  rtc.setYear(buffer[2]); 
+}
+
+void cmdSetTime()
+{
+  int val;
+  int buffer[3];
+  char *arg;
+  uint8_t i = 0;
+  for(i = 0; i < 3; i++)
+  {
+      arg = term.getNext();
+      if (arg == NULL)
+      {
+        Serial.println(F("DEC value not specified."));
+        return;
+      }
+      else
+      {
+        if (sscanf(arg, "%d", &val) != 1)
+        {
+          Serial.println(F("Cannot convert DEC value."));
+          return;
+        }
+      }
+
+      buffer[i] = val;
+  }
+
+  rtc.setClockMode(false);
+  rtc.setHour(buffer[0]);
+  rtc.setMinute(buffer[1]);
+  rtc.setSecond(buffer[2]); 
 }
 
 void cmdSave()
@@ -741,7 +974,15 @@ void cmdSave()
   // write to EEPROM.
   EEPROM.write(addr, enaBeacon); 
   addr++;
-  EEPROM.write(addr, repeatBeacon);    
+  EEPROM.write(addr, repeatBeacon);
+  addr++;
+  EEPROM.write(addr, a1Hour);
+  addr++;
+  EEPROM.write(addr, a1Minute);
+  addr++;
+  EEPROM.write(addr, a2Hour);
+  addr++;
+  EEPROM.write(addr, a2Minute);      
   Serial.println("Save Configuration");
 
 }
@@ -784,19 +1025,19 @@ void printConsoleChar(void)
 // --  PIO  -------------------------------------------------------------
 void enableRelay(uint8_t num, bool state)
 {
-  if(state == 0)
-  {
-    pio.write((8 + (num * 2) + 1), LOW);
-    pio.write((8 + (num * 2)), HIGH);
-    delay(150);
-    pio.write((8 + (num * 2)), LOW);
-  }
-  else
+  if(state)
   {
     pio.write((8 + (num * 2)), LOW);
     pio.write((8 + (num * 2) + 1), HIGH);
     delay(150);
     pio.write((8 + (num * 2) + 1), LOW);
+  }
+  else
+  {
+    pio.write((8 + (num * 2) + 1), LOW);
+    pio.write((8 + (num * 2)), HIGH);
+    delay(150);
+    pio.write((8 + (num * 2)), LOW);
   }
 }
 
@@ -831,54 +1072,4 @@ void checkSecond(void)
       dtmfTimer--;
     }
   }
-}
-
-void getDateStuff(byte& year, byte& month, byte& date, byte& dOW, byte& hour, byte& minute, byte& second) 
-{
-    // Call this if you notice something coming in on
-    // the serial port. The stuff coming in should be in
-    // the order YYMMDDwHHMMSS, with an 'x' at the end.
-    boolean gotString = false;
-    char inChar;
-    byte temp1, temp2;
-    char inString[20];
-    
-    byte j=0;
-    while (!gotString) {
-        if (Serial.available()) {
-            inChar = Serial.read();
-            inString[j] = inChar;
-            j += 1;
-            if (inChar == 'x') {
-                gotString = true;
-            }
-        }
-    }
-    Serial.println(inString);
-    // Read year first
-    temp1 = (byte)inString[0] -48;
-    temp2 = (byte)inString[1] -48;
-    year = temp1*10 + temp2;
-    // now month
-    temp1 = (byte)inString[2] -48;
-    temp2 = (byte)inString[3] -48;
-    month = temp1*10 + temp2;
-    // now date
-    temp1 = (byte)inString[4] -48;
-    temp2 = (byte)inString[5] -48;
-    date = temp1*10 + temp2;
-    // now Day of Week
-    dOW = (byte)inString[6] - 48;
-    // now hour
-    temp1 = (byte)inString[7] -48;
-    temp2 = (byte)inString[8] -48;
-    hour = temp1*10 + temp2;
-    // now minute
-    temp1 = (byte)inString[9] -48;
-    temp2 = (byte)inString[10] -48;
-    minute = temp1*10 + temp2;
-    // now second
-    temp1 = (byte)inString[11] -48;
-    temp2 = (byte)inString[12] -48;
-    second = temp1*10 + temp2;
 }
