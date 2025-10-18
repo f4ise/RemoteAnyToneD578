@@ -16,6 +16,7 @@
 DS3231 rtc;
 // Temperature Sensor
 BME280 SensorInt;
+BME280 SensorExt;
 // PIO Extension
 PCF8575 pio(0x20);
 
@@ -119,12 +120,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(intRTC), intRTC_ISR, FALLING);
 
   // Init BME280
-  SensorInt.setI2CAddress(0x76);
+  SensorExt.setI2CAddress(0x76);
+  if(SensorExt.beginI2C() == false)
+  {
+    Serial.println(F("Sensor Ext connect failed"));
+  }    
+  SensorInt.setI2CAddress(0x77);
   if(SensorInt.beginI2C() == false)
   {
     Serial.println(F("Sensor Int connect failed"));
-  }    
-
+  } 
   // Init PIO
   if(pio.begin(0) == false)
   {
@@ -288,7 +293,7 @@ void taskDTMF(void)
     Serial.println(cmdDTMF[0]);
     
     // Long press
-    if(cmdDTMF[2] == '*')
+    if(cmdDTMF[2] == '#')
     {
       switch (cmdDTMF[0])
       {
@@ -371,7 +376,7 @@ void taskDTMF(void)
     Serial.println(cmdDTMF[0]);
     
     // CMD ON/OFF
-    if(cmdDTMF[2] == '*')
+    if(cmdDTMF[2] == '#')
     {
       switch (cmdDTMF[1])
       {
@@ -989,16 +994,28 @@ void cmdSave()
 
 void cmdTemp()
 {
-  Serial.print(F("Humidite: "));
+  Serial.print(F("INT Humidite: "));
   Serial.print(SensorInt.readFloatHumidity(), 1);
   Serial.println(F("%"));
 
-  Serial.print(F("Pression: "));
+  Serial.print(F("INT Pression: "));
   Serial.print((SensorInt.readFloatPressure() / 100), 1);
   Serial.println(F(" hPa"));
 
-  Serial.print(F("Temperature: "));
+  Serial.print(F("INT Temperature: "));
   Serial.print(SensorInt.readTempC(), 1);
+  Serial.println(F("°"));
+
+    Serial.print(F("EXT Humidite: "));
+  Serial.print(SensorExt.readFloatHumidity(), 1);
+  Serial.println(F("%"));
+
+  Serial.print(F("EXT Pression: "));
+  Serial.print((SensorExt.readFloatPressure() / 100), 1);
+  Serial.println(F(" hPa"));
+
+  Serial.print(F("EXT Temperature: "));
+  Serial.print(SensorExt.readTempC(), 1);
   Serial.println(F("°"));
 }
 

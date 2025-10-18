@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "P82B715D")(type "KiCad")(uri "${KIPRJMOD}/lib/P82B715D/P82B715D.kicad_sym")(options "")(descr ""))
+)
